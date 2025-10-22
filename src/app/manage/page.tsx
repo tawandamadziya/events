@@ -8,9 +8,14 @@ import {
   EVENT_STORAGE_KEY,
   Event,
   EventClass,
+  MENU,
+  MenuCategory,
+  MenuItemId,
+  Orders,
   PaymentStatus,
   PAYMENT_STATUSES,
   cloneDefaultEvents,
+  createEmptyOrders,
   normalizeEvent,
 } from '../../data/events';
 
@@ -22,7 +27,7 @@ type FlashMessage = {
 };
 
 type EventForm = {
-  id: string;
+  contactNumber: string;
   title: string;
   booker: string;
   status: PaymentStatus;
@@ -31,18 +36,22 @@ type EventForm = {
   location: string;
   headcount: string;
   notes: string;
+  orders: Orders;
 };
 
+type EventFormField = Exclude<keyof EventForm, 'orders'>;
+
 const createEmptyForm = (): EventForm => ({
-  id: '',
+  contactNumber: '',
   title: '',
   booker: '',
   status: 'Pending',
-  eventClass: 'Signature Experience',
+  eventClass: 'Grazing',
   date: '',
   location: '',
   headcount: '',
   notes: '',
+  orders: createEmptyOrders(),
 });
 
 const dateFormatter = new Intl.DateTimeFormat('en-US', {
@@ -65,6 +74,8 @@ const toneStyles: Record<FlashTone, string> = {
   info: 'border-indigo-400/40 bg-indigo-500/15 text-indigo-100',
 };
 
+const ORDER_QUANTITY_MAX = 9999;
+
 function toDateInputValue(dateISO: string) {
   if (!dateISO) {
     return '';
@@ -80,18 +91,21 @@ function toDateInputValue(dateISO: string) {
   return local.toISOString().slice(0, 16);
 }
 
-function generateEventId(existing: Event[]): string {
-  const numericIds = existing
-    .map((event) => Number.parseInt(event.id.replace(/\D/g, ''), 10))
-    .filter((id) => Number.isFinite(id));
+function generateContactNumber(existing: Event[]): string {
+  const numericSuffixes = existing
+    .map((event) => {
+      const match = event.contactNumber.match(/(\d{4})$/);
+      return match ? Number.parseInt(match[1], 10) : Number.NaN;
+    })
+    .filter((value) => Number.isFinite(value));
 
-  const nextNumber = numericIds.length ? Math.max(...numericIds) + 1 : 2401;
-  return `EVT-${nextNumber}`;
+  const nextNumber = numericSuffixes.length ? Math.max(...numericSuffixes) + 1 : 101;
+  return `202-555-${String(nextNumber).padStart(4, '0')}`;
 }
 
 function eventToForm(event: Event): EventForm {
   return {
-    id: event.id,
+    contactNumber: event.contactNumber,
     title: event.title,
     booker: event.booker,
     status: event.status,
@@ -100,14 +114,23 @@ function eventToForm(event: Event): EventForm {
     location: event.location,
     headcount: String(event.headcount),
     notes: event.notes,
+    orders: { ...event.orders },
   };
+}
+
+function calculateOrderTotal(orders: Orders): number {
+  return Object.values(orders).reduce((total, value) => total + value, 0);
+}
+
+function calculateCategoryOrderTotal(category: MenuCategory, orders: Orders): number {
+  return category.items.reduce((total, item) => total + (orders[item.id] ?? 0), 0);
 }
 
 export default function ManageEventsPage() {
   const [events, setEvents] = useState<Event[]>(() => cloneDefaultEvents());
   const [hydrated, setHydrated] = useState(false);
   const [form, setForm] = useState<EventForm>(() => createEmptyForm());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedContactNumber, setSelectedContactNumber] = useState<string | null>(null);
   const [flash, setFlash] = useState<FlashMessage | null>(null);
 
   useEffect(() => {
@@ -181,17 +204,17 @@ export default function ManageEventsPage() {
     return events.reduce((acc, event) => acc + event.headcount, 0);
   }, [events]);
 
-  const isEditing = selectedId !== null;
+  const isEditing = selectedContactNumber !== null;
 
   const handleSelectForEdit = (event: Event) => {
-    setSelectedId(event.id);
+    setSelectedContactNumber(event.contactNumber);
     setForm(eventToForm(event));
   };
 
-  const handleDelete = (id: string) => {
-    const target = events.find((event) => event.id === id);
+  const handleDelete = (contactNumber: string) => {
+    const target = events.find((event) => event.contactNumber === contactNumber);
     if (typeof window !== 'undefined') {
-      const label = target ? `${target.title} (${target.id})` : 'this event';
+      const label = target ? `${target.title} (${target.contactNumber})` : 'this event';
       const confirmation = window.confirm(
         `Remove ${label} from the dataset? This action cannot be undone.`,
       );
@@ -200,27 +223,88 @@ export default function ManageEventsPage() {
       }
     }
 
-    setEvents((current) => current.filter((event) => event.id !== id));
-    if (selectedId === id) {
-      setSelectedId(null);
+    setEvents((current) =>
+      current.filter((event) => event.contactNumber !== contactNumber),
+    );
+    if (selectedContactNumber === contactNumber) {
+      setSelectedContactNumber(null);
       setForm(createEmptyForm());
     }
     setFlash({ tone: 'info', text: 'Event removed from the dataset.' });
   };
 
-  const handleInputChange = (field: keyof EventForm, value: string) => {
+  const handleFieldChange = (field: EventFormField, value: string) => {
     setForm((current) => ({
       ...current,
       [field]: value,
     }));
   };
 
+  const setOrderQuantity = (itemId: MenuItemId, quantity: number) => {
+    setForm((current) => {
+      const normalized = Math.max(
+        0,
+        Math.min(ORDER_QUANTITY_MAX, Number.isFinite(quantity) ? Math.floor(quantity) : 0),
+      );
+
+      if (current.orders[itemId] === normalized) {
+        return current;
+      }
+
+      return {
+        ...current,
+        orders: {
+          ...current.orders,
+          [itemId]: normalized,
+        },
+      };
+    });
+  };
+
+  const handleOrderInput = (itemId: MenuItemId, value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+      setOrderQuantity(itemId, 0);
+      return;
+    }
+    setOrderQuantity(itemId, parsed);
+  };
+
+  const adjustOrderQuantity = (itemId: MenuItemId, delta: number) => {
+    setForm((current) => {
+      const currentValue = current.orders[itemId] ?? 0;
+      const adjusted = Math.max(
+        0,
+        Math.min(ORDER_QUANTITY_MAX, currentValue + delta),
+      );
+
+      if (adjusted === currentValue) {
+        return current;
+      }
+
+      return {
+        ...current,
+        orders: {
+          ...current.orders,
+          [itemId]: adjusted,
+        },
+      };
+    });
+  };
+
+  const resetOrders = () => {
+    setForm((current) => ({
+      ...current,
+      orders: createEmptyOrders(),
+    }));
+  };
+
   const resetForm = () => {
-    setSelectedId(null);
+    setSelectedContactNumber(null);
     setForm(createEmptyForm());
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const trimmedTitle = form.title.trim();
@@ -253,22 +337,24 @@ export default function ManageEventsPage() {
       return;
     }
 
-    const normalizedId = form.id.trim().toUpperCase() || generateEventId(events);
-    const duplicateId = events.some(
+    const normalizedContact =
+      form.contactNumber.trim() || generateContactNumber(events);
+    const duplicateContact = events.some(
       (existing) =>
-        existing.id === normalizedId && (isEditing ? existing.id !== selectedId : true),
+        existing.contactNumber === normalizedContact &&
+        (isEditing ? existing.contactNumber !== selectedContactNumber : true),
     );
 
-    if (duplicateId) {
+    if (duplicateContact) {
       setFlash({
         tone: 'error',
-        text: `An event with ID ${normalizedId} already exists.`,
+        text: `An event with contact number ${normalizedContact} already exists.`,
       });
       return;
     }
 
     const payload: Event = {
-      id: normalizedId,
+      contactNumber: normalizedContact,
       title: trimmedTitle,
       booker: trimmedBooker,
       status: form.status,
@@ -277,6 +363,7 @@ export default function ManageEventsPage() {
       location: trimmedLocation,
       headcount: parsedHeadcount,
       notes: form.notes.trim(),
+      orders: { ...form.orders },
     };
 
     setEvents((current) => {
@@ -284,7 +371,7 @@ export default function ManageEventsPage() {
         return [...current, payload];
       }
       return current.map((existing) =>
-        existing.id === selectedId ? payload : existing,
+        existing.contactNumber === selectedContactNumber ? payload : existing,
       );
     });
 
@@ -293,7 +380,7 @@ export default function ManageEventsPage() {
       text: isEditing ? 'Event updated.' : 'Event added to the schedule.',
     });
 
-    setSelectedId(null);
+    setSelectedContactNumber(null);
     setForm(createEmptyForm());
   };
 
@@ -458,9 +545,9 @@ export default function ManageEventsPage() {
                 ) : (
                   sortedEvents.map((event) => (
                     <article
-                      key={event.id}
+                      key={event.contactNumber}
                       className={`rounded-2xl border px-5 py-5 transition ${
-                        selectedId === event.id
+                        selectedContactNumber === event.contactNumber
                           ? 'border-indigo-400/60 bg-indigo-500/10 shadow-lg shadow-indigo-900/40'
                           : 'border-slate-800 bg-slate-900/80 shadow shadow-slate-950/20'
                       }`}
@@ -468,7 +555,7 @@ export default function ManageEventsPage() {
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                            {event.id}
+                            {event.contactNumber}
                           </p>
                           <h3 className="mt-1 text-xl font-semibold text-white">
                             {event.title}
@@ -499,8 +586,28 @@ export default function ManageEventsPage() {
                         </div>
                       </div>
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm text-slate-300">{event.notes}</p>
-                        <div className="flex flex-wrap gap-2">
+                        <p className="text-sm text-slate-300">
+                          {event.notes ? event.notes : 'No special notes recorded.'}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-xs text-slate-300">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              className="h-4 w-4"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 7.5h18M3 12h18M3 16.5h18"
+                              />
+                            </svg>
+                            {calculateOrderTotal(event.orders)} menu item
+                            {calculateOrderTotal(event.orders) === 1 ? '' : 's'}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleSelectForEdit(event)}
@@ -510,7 +617,7 @@ export default function ManageEventsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(event.id)}
+                            onClick={() => handleDelete(event.contactNumber)}
                             className="rounded-full border border-rose-400/40 bg-rose-500/10 px-4 py-1.5 text-xs font-semibold text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/20 hover:text-white"
                           >
                             Remove
@@ -541,7 +648,7 @@ export default function ManageEventsPage() {
                   <input
                     type="text"
                     value={form.title}
-                    onChange={(e) => handleInputChange('title', e.target.value)}
+                    onChange={(e) => handleFieldChange('title', e.target.value)}
                     className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-indigo-400 focus:outline-none"
                     placeholder="Summit of Visionaries"
                   />
@@ -555,24 +662,24 @@ export default function ManageEventsPage() {
                     <input
                       type="text"
                       value={form.booker}
-                      onChange={(e) => handleInputChange('booker', e.target.value)}
+                      onChange={(e) => handleFieldChange('booker', e.target.value)}
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-indigo-400 focus:outline-none"
                       placeholder="Maya Chen"
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-                      Event ID
+                      Contact number
                     </label>
                     <input
                       type="text"
-                      value={form.id}
-                      onChange={(e) => handleInputChange('id', e.target.value)}
+                      value={form.contactNumber}
+                      onChange={(e) => handleFieldChange('contactNumber', e.target.value)}
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-indigo-400 focus:outline-none"
-                      placeholder="EVT-2426"
+                      placeholder="202-555-0126"
                     />
                     <p className="text-2xs text-slate-500">
-                      Leave blank to auto-generate the next sequential ID.
+                      Leave blank to auto-generate the next hotline number.
                     </p>
                   </div>
                 </div>
@@ -585,7 +692,7 @@ export default function ManageEventsPage() {
                     <select
                       value={form.status}
                       onChange={(e) =>
-                        handleInputChange('status', e.target.value as PaymentStatus)
+                        handleFieldChange('status', e.target.value as PaymentStatus)
                       }
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none"
                     >
@@ -603,7 +710,7 @@ export default function ManageEventsPage() {
                     <select
                       value={form.eventClass}
                       onChange={(e) =>
-                        handleInputChange('eventClass', e.target.value as EventClass)
+                        handleFieldChange('eventClass', e.target.value as EventClass)
                       }
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none"
                     >
@@ -624,7 +731,7 @@ export default function ManageEventsPage() {
                     <input
                       type="datetime-local"
                       value={form.date}
-                      onChange={(e) => handleInputChange('date', e.target.value)}
+                      onChange={(e) => handleFieldChange('date', e.target.value)}
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none"
                     />
                   </div>
@@ -636,7 +743,7 @@ export default function ManageEventsPage() {
                       type="number"
                       min={1}
                       value={form.headcount}
-                      onChange={(e) => handleInputChange('headcount', e.target.value)}
+                      onChange={(e) => handleFieldChange('headcount', e.target.value)}
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 focus:border-indigo-400 focus:outline-none"
                     />
                   </div>
@@ -649,7 +756,7 @@ export default function ManageEventsPage() {
                   <input
                     type="text"
                     value={form.location}
-                    onChange={(e) => handleInputChange('location', e.target.value)}
+                    onChange={(e) => handleFieldChange('location', e.target.value)}
                     className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-indigo-400 focus:outline-none"
                     placeholder="Skyline Ballroom · Chicago"
                   />
@@ -661,11 +768,78 @@ export default function ManageEventsPage() {
                   </label>
                   <textarea
                     value={form.notes}
-                    onChange={(e) => handleInputChange('notes', e.target.value)}
+                    onChange={(e) => handleFieldChange('notes', e.target.value)}
                     rows={4}
                     className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-indigo-400 focus:outline-none"
                     placeholder="Key follow-ups, vendor reminders, or production notes."
                   />
+                </div>
+
+                <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+                      Menu quantities
+                    </p>
+                    <button
+                      type="button"
+                      onClick={resetOrders}
+                      className="rounded-full border border-slate-700 px-3 py-1 text-2xs font-semibold text-slate-300 transition hover:border-slate-500 hover:text-white"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Adjust the portions assigned to this booking. Guests only see totals when
+                    their details are pulled up.
+                  </p>
+                  <div className="divide-y divide-slate-800 rounded-2xl border border-slate-800">
+                    {MENU.map((category) => (
+                      <div key={category.id} className="space-y-3 p-4 first:rounded-t-2xl last:rounded-b-2xl">
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="text-sm font-semibold text-white">{category.title}</h3>
+                          <span className="text-2xs uppercase tracking-[0.25em] text-slate-500">
+                            {calculateCategoryOrderTotal(category, form.orders)} total
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          {category.items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap"
+                            >
+                              <span className="text-sm text-slate-200">{item.label}</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => adjustOrderQuantity(item.id, -1)}
+                                  className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-sm font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white"
+                                  aria-label={`Decrease ${item.label}`}
+                                >
+                                  &minus;
+                                </button>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={ORDER_QUANTITY_MAX}
+                                  value={form.orders[item.id] ?? 0}
+                                  onChange={(e) => handleOrderInput(item.id, e.target.value)}
+                                  className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center text-sm text-white focus:border-indigo-400 focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => adjustOrderQuantity(item.id, 1)}
+                                  className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-400/60 bg-indigo-500/20 text-sm font-semibold text-indigo-100 transition hover:border-indigo-300 hover:text-white"
+                                  aria-label={`Increase ${item.label}`}
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">

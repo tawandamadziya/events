@@ -1,11 +1,99 @@
+import defaultEventSeed from './default-events.json';
+
 export type PaymentStatus = 'Approved' | 'Pending' | 'Not Paid';
-export type EventClass =
-  | 'Signature Experience'
-  | 'Premier Affair'
-  | 'Elevated Social';
+export type EventClass = 'Grazing' | 'live station' | 'pre order';
+
+export const PAYMENT_STATUSES: PaymentStatus[] = ['Approved', 'Pending', 'Not Paid'];
+export const EVENT_CLASSES: EventClass[] = ['Grazing', 'live station', 'pre order'];
+
+export const EVENT_STORAGE_KEY = 'event-pulse-events';
+
+export const MENU = [
+  {
+    id: 'appetizers',
+    title: 'Appetizers',
+    items: [
+      { id: 'guacamole-and-chips', label: 'Guacamole & Chips' },
+      { id: 'salsa-roja', label: 'Salsa Roja' },
+      { id: 'pico-de-gallo', label: 'Pico de Gallo' },
+      { id: 'flautas', label: 'Flautas' },
+      { id: 'salsa-verde', label: 'Salsa Verde' },
+      { id: 'queso', label: 'Queso' },
+      { id: 'mexican-rice', label: 'Mexican Rice' },
+      { id: 'elotes-corn', label: 'Elotes Corn' },
+    ],
+  },
+  {
+    id: 'salads',
+    title: 'Salads',
+    items: [
+      { id: 'kale-salad', label: 'Kale Salad' },
+      { id: 'caesar-salad', label: 'Caesar Salad' },
+      { id: 'mexican-salad', label: 'Mexican Salad' },
+      { id: 'potato-salad', label: 'Potato Salad' },
+    ],
+  },
+  {
+    id: 'quesadillas',
+    title: 'Quesadillas',
+    items: [
+      { id: 'pollo-quesadilla', label: 'Pollo Quesadilla (Chicken)' },
+      { id: 'carne-quesadilla', label: 'Carne Quesadilla (Beef)' },
+      { id: 'sweet-potato-beans-quesadilla', label: 'Sweet Potato & Beans Quesadilla' },
+      { id: 'shrimp-quesadilla', label: 'Shrimp Quesadilla' },
+    ],
+  },
+  {
+    id: 'burritos',
+    title: 'Burritos',
+    items: [
+      { id: 'veggie-burrito', label: 'Veggie Burrito' },
+      { id: 'hongo-burrito', label: 'Hongo Burrito (Mushroom)' },
+      { id: 'pollo-burrito', label: 'Pollo Burrito (Chicken)' },
+      { id: 'carne-burrito', label: 'Carne Burrito (Beef)' },
+      { id: 'birria-burrito', label: 'Birria Burrito (Slow-Cooked Beef)' },
+    ],
+  },
+  {
+    id: 'tacos',
+    title: 'Tacos',
+    items: [
+      { id: 'camarones-taco', label: 'Camarones (Shrimp)' },
+      { id: 'birria-taco', label: 'Birria Tacos (Beef)' },
+      { id: 'pollo-loco-taco', label: 'Pollo Loco (Chicken)' },
+      { id: 'adobado-taco', label: 'Adobado (Marinated Chicken)' },
+      { id: 'el-jefe-taco', label: 'El Jefe (Beef)' },
+      { id: 'hongo-taco', label: 'Hongo (Mushroom)' },
+      { id: 'la-tierra-taco', label: 'La Tierra (Sweet Potato & Cauliflower)' },
+      { id: 'carne-asada-taco', label: 'Carne Asada (Grilled Beef)' },
+      { id: 'carne-picante-taco', label: 'Carne Picante (Spicy Beef)' },
+      { id: 'al-carbon-taco', label: 'Al Carbon (Char-Grilled Beef)' },
+      { id: 'la-gringa-taco', label: 'La Gringa (Fish)' },
+    ],
+  },
+] as const;
+
+export type MenuCategory = (typeof MENU)[number];
+export type MenuItem = MenuCategory['items'][number];
+export type MenuItemId = MenuItem['id'];
+export type Orders = Record<MenuItemId, number>;
+
+type StoredEvent = {
+  contactNumber?: unknown;
+  id?: unknown;
+  title?: unknown;
+  booker?: unknown;
+  status?: unknown;
+  eventClass?: unknown;
+  date?: unknown;
+  location?: unknown;
+  headcount?: unknown;
+  notes?: unknown;
+  orders?: unknown;
+};
 
 export type Event = {
-  id: string;
+  contactNumber: string;
   title: string;
   booker: string;
   status: PaymentStatus;
@@ -14,302 +102,84 @@ export type Event = {
   location: string;
   headcount: number;
   notes: string;
+  orders: Orders;
 };
 
-export const PAYMENT_STATUSES: PaymentStatus[] = [
-  'Approved',
-  'Pending',
-  'Not Paid',
-];
+const LEGACY_CLASS_MAP: Record<string, EventClass> = {
+  'Premier Affair': 'Grazing',
+  'Signature Experience': 'live station',
+  'Elevated Social': 'pre order',
+};
 
-export const EVENT_CLASSES: EventClass[] = [
-  'Signature Experience',
-  'Premier Affair',
-  'Elevated Social',
-];
+export function createEmptyOrders(): Orders {
+  return MENU.reduce<Orders>((accumulator, category) => {
+    category.items.forEach((item) => {
+      accumulator[item.id] = 0;
+    });
+    return accumulator;
+  }, {} as Orders);
+}
 
-export const EVENT_STORAGE_KEY = 'event-pulse-events';
+function normalizeOrders(rawOrders: unknown): Orders {
+  const base = createEmptyOrders();
 
-export const DEFAULT_EVENTS: Event[] = [
-  {
-    id: 'EVT-2401',
-    title: 'Azure Skyline Gala',
-    booker: 'Maya Chen',
-    status: 'Approved',
-    eventClass: 'Premier Affair',
-    date: '2025-11-02T18:30:00Z',
-    location: 'Skyline Ballroom · Chicago',
-    headcount: 320,
-    notes: 'VIP arrivals staggered; stage lighting rehearsal on Nov 1.',
-  },
-  {
-    id: 'EVT-2402',
-    title: 'Luminescent Arts Showcase',
-    booker: "Idris O'Neal",
-    status: 'Pending',
-    eventClass: 'Signature Experience',
-    date: '2025-11-12T16:00:00Z',
-    location: 'Atrium Gallery · Atlanta',
-    headcount: 185,
-    notes: 'Awaiting lighting contractor confirmation.',
-  },
-  {
-    id: 'EVT-2403',
-    title: 'Summit of Visionaries',
-    booker: 'Valentina Rossi',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2025-11-18T14:00:00Z',
-    location: 'Forum Centre · Milan',
-    headcount: 420,
-    notes: 'Keynote speaker tech run scheduled for Nov 17.',
-  },
-  {
-    id: 'EVT-2404',
-    title: 'Coastal Harmony Retreat',
-    booker: 'Casper Holm',
-    status: 'Not Paid',
-    eventClass: 'Elevated Social',
-    date: '2025-11-25T19:00:00Z',
-    location: 'Seabreeze Resort · Copenhagen',
-    headcount: 90,
-    notes: 'Final installment overdue; finance notified Nov 5.',
-  },
-  {
-    id: 'EVT-2405',
-    title: 'Opaline Winter Ball',
-    booker: 'Anika Patel',
-    status: 'Pending',
-    eventClass: 'Premier Affair',
-    date: '2025-12-05T20:00:00Z',
-    location: 'Grand Meridian · Toronto',
-    headcount: 360,
-    notes: 'Menu tasting moved to Nov 20.',
-  },
-  {
-    id: 'EVT-2406',
-    title: 'Catalyst Leadership Forum',
-    booker: 'Rowan Ellis',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2025-12-12T13:30:00Z',
-    location: 'Vertex Hub · London',
-    headcount: 280,
-    notes: 'Live translating team confirmed.',
-  },
-  {
-    id: 'EVT-2407',
-    title: 'Saffron Soirée',
-    booker: 'Laila Navarro',
-    status: 'Not Paid',
-    eventClass: 'Elevated Social',
-    date: '2025-12-20T21:00:00Z',
-    location: 'Casa Naranja · Madrid',
-    headcount: 210,
-    notes: 'Deposit reminder sent Nov 7.',
-  },
-  {
-    id: 'EVT-2408',
-    title: 'Aurora Wellness Weekend',
-    booker: 'Theo Laurent',
-    status: 'Approved',
-    eventClass: 'Premier Affair',
-    date: '2026-01-08T10:00:00Z',
-    location: 'Nordic Springs · Oslo',
-    headcount: 145,
-    notes: 'Wellness kits arriving Jan 4.',
-  },
-  {
-    id: 'EVT-2409',
-    title: 'Inspire Tech Launch',
-    booker: 'Serena Brooks',
-    status: 'Pending',
-    eventClass: 'Signature Experience',
-    date: '2026-01-14T17:30:00Z',
-    location: 'Pulse Pavilion · Austin',
-    headcount: 500,
-    notes: 'Awaiting payment confirmation for LED wall.',
-  },
-  {
-    id: 'EVT-2410',
-    title: 'Celestial Charity Dinner',
-    booker: 'Jaden Clarke',
-    status: 'Approved',
-    eventClass: 'Premier Affair',
-    date: '2026-01-22T19:30:00Z',
-    location: 'Orchid Hall · New York',
-    headcount: 260,
-    notes: 'Auction catalog final proof due Jan 12.',
-  },
-  {
-    id: 'EVT-2411',
-    title: 'Future Minds Expo',
-    booker: 'Priya Nwosu',
-    status: 'Pending',
-    eventClass: 'Signature Experience',
-    date: '2026-01-29T09:00:00Z',
-    location: 'Innovation Pier · Lagos',
-    headcount: 620,
-    notes: 'Sponsorship hold on Pavilion C.',
-  },
-  {
-    id: 'EVT-2412',
-    title: 'Velvet Garden Luncheon',
-    booker: 'Hugo Fontaine',
-    status: 'Not Paid',
-    eventClass: 'Elevated Social',
-    date: '2026-02-05T12:30:00Z',
-    location: 'Jardin des Fleurs · Paris',
-    headcount: 140,
-    notes: 'Payment portal link resent Dec 12.',
-  },
-  {
-    id: 'EVT-2413',
-    title: 'Luminary Investors Forum',
-    booker: 'Camila Duarte',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2026-02-11T08:30:00Z',
-    location: 'Glasshouse District · São Paulo',
-    headcount: 310,
-    notes: 'Hybrid production crew confirmed.',
-  },
-  {
-    id: 'EVT-2414',
-    title: 'Gilded Age Anniversary',
-    booker: 'Omar Rahman',
-    status: 'Not Paid',
-    eventClass: 'Elevated Social',
-    date: '2026-02-19T18:00:00Z',
-    location: 'Heritage Manor · Dubai',
-    headcount: 180,
-    notes: 'Client requested revised invoice on Nov 28.',
-  },
-  {
-    id: 'EVT-2415',
-    title: 'Radiant Horizons Summit',
-    booker: 'Eliza Monroe',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2026-02-27T09:30:00Z',
-    location: 'Helios Center · San Francisco',
-    headcount: 480,
-    notes: 'Breakout room schedule in review.',
-  },
-  {
-    id: 'EVT-2416',
-    title: 'Marquee Fashion Preview',
-    booker: 'Finn Gallagher',
-    status: 'Approved',
-    eventClass: 'Premier Affair',
-    date: '2026-03-06T19:00:00Z',
-    location: 'Vault Studios · Dublin',
-    headcount: 230,
-    notes: 'Runway design locked Feb 10.',
-  },
-  {
-    id: 'EVT-2417',
-    title: 'Verdant Culinary Journey',
-    booker: 'Noor Youssef',
-    status: 'Pending',
-    eventClass: 'Elevated Social',
-    date: '2026-03-13T18:30:00Z',
-    location: 'Greenhouse Collective · Cairo',
-    headcount: 160,
-    notes: 'Chef tasting scheduled Feb 18.',
-  },
-  {
-    id: 'EVT-2418',
-    title: 'Beacon Start-Up Showcase',
-    booker: 'Sasha Petrov',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2026-03-21T11:00:00Z',
-    location: 'Harbor Labs · Tallinn',
-    headcount: 290,
-    notes: 'Investor lounge layout finalized.',
-  },
-  {
-    id: 'EVT-2419',
-    title: 'Sapphire Estate Wedding',
-    booker: 'Talia Hammond',
-    status: 'Not Paid',
-    eventClass: 'Premier Affair',
-    date: '2026-03-28T15:00:00Z',
-    location: 'Sapphire Estate · Cape Town',
-    headcount: 180,
-    notes: 'Payment plan agreement pending signature.',
-  },
-  {
-    id: 'EVT-2420',
-    title: 'Auric Brand Immersion',
-    booker: 'Marcus Vega',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2026-04-04T10:30:00Z',
-    location: 'Canvas District · Los Angeles',
-    headcount: 260,
-    notes: 'Immersive room build begins Mar 20.',
-  },
-  {
-    id: 'EVT-2421',
-    title: 'Moonlit Harbor Reception',
-    booker: 'Sienna Harper',
-    status: 'Pending',
-    eventClass: 'Elevated Social',
-    date: '2026-04-12T18:00:00Z',
-    location: 'Harborlight Venue · Sydney',
-    headcount: 150,
-    notes: 'Florals pending customs clearance.',
-  },
-  {
-    id: 'EVT-2422',
-    title: 'Chroma Creative Lab',
-    booker: 'Gideon Blake',
-    status: 'Approved',
-    eventClass: 'Signature Experience',
-    date: '2026-04-19T09:00:00Z',
-    location: 'Spectrum Studios · Berlin',
-    headcount: 310,
-    notes: 'Interactive stations pre-production locked.',
-  },
-  {
-    id: 'EVT-2423',
-    title: 'Golden Jubilee Fête',
-    booker: 'Alma Ruiz',
-    status: 'Pending',
-    eventClass: 'Premier Affair',
-    date: '2026-04-26T17:00:00Z',
-    location: 'Casa Dorada · Mexico City',
-    headcount: 200,
-    notes: 'Awaiting patron seating chart.',
-  },
-  {
-    id: 'EVT-2424',
-    title: 'Cobalt Innovation Sprint',
-    booker: 'Lucia Marino',
-    status: 'Not Paid',
-    eventClass: 'Signature Experience',
-    date: '2026-05-02T08:30:00Z',
-    location: 'Bluestone Hub · Lisbon',
-    headcount: 240,
-    notes: 'Finance flagged overdue balance Mar 25.',
-  },
-  {
-    id: 'EVT-2425',
-    title: 'Zenith Cultural Festival',
-    booker: 'Kaito Tanaka',
-    status: 'Approved',
-    eventClass: 'Elevated Social',
-    date: '2026-05-09T12:00:00Z',
-    location: 'Riverfront Commons · Kyoto',
-    headcount: 450,
-    notes: 'Permits secured; pop-up vendors confirmed.',
-  },
-];
+  if (!rawOrders || typeof rawOrders !== 'object') {
+    return base;
+  }
 
-export function cloneDefaultEvents(): Event[] {
-  return DEFAULT_EVENTS.map((event) => ({ ...event }));
+  const record = rawOrders as Record<string, unknown>;
+
+  (Object.keys(base) as MenuItemId[]).forEach((key) => {
+    const value = record[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      base[key] = Math.max(0, Math.floor(value));
+      return;
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number.parseInt(value, 10);
+      if (Number.isFinite(parsed)) {
+        base[key] = Math.max(0, parsed);
+      }
+    }
+  });
+
+  return base;
+}
+
+function sanitizeContactNumber(contactNumber: unknown, fallback?: unknown): string | null {
+  const candidate = contactNumber ?? fallback;
+
+  if (candidate === undefined || candidate === null) {
+    return null;
+  }
+
+  const trimmed = String(candidate).trim();
+  return trimmed ? trimmed : null;
+}
+
+function sanitizeEventClass(eventClass: unknown): EventClass | null {
+  if (typeof eventClass !== 'string') {
+    return null;
+  }
+
+  if ((EVENT_CLASSES as readonly string[]).includes(eventClass)) {
+    return eventClass as EventClass;
+  }
+
+  const mapped = LEGACY_CLASS_MAP[eventClass];
+  return mapped ?? null;
+}
+
+function sanitizeStatus(status: unknown): PaymentStatus | null {
+  if (typeof status !== 'string') {
+    return null;
+  }
+
+  return (PAYMENT_STATUSES as readonly string[]).includes(status)
+    ? (status as PaymentStatus)
+    : null;
 }
 
 export function normalizeEvent(value: unknown): Event | null {
@@ -317,31 +187,32 @@ export function normalizeEvent(value: unknown): Event | null {
     return null;
   }
 
-  const candidate = value as Record<string, unknown>;
-  const status = candidate.status;
-  const eventClass = candidate.eventClass;
+  const candidate = value as StoredEvent;
+
+  const contactNumber = sanitizeContactNumber(candidate.contactNumber, candidate.id);
+  if (!contactNumber) {
+    return null;
+  }
+
+  if (typeof candidate.title !== 'string' || typeof candidate.booker !== 'string') {
+    return null;
+  }
+
+  const status = sanitizeStatus(candidate.status);
+  if (!status) {
+    return null;
+  }
+
+  const eventClass = sanitizeEventClass(candidate.eventClass);
+  if (!eventClass) {
+    return null;
+  }
+
+  if (typeof candidate.date !== 'string' || typeof candidate.location !== 'string') {
+    return null;
+  }
+
   const headcountValue = candidate.headcount;
-
-  if (
-    typeof candidate.id !== 'string' ||
-    typeof candidate.title !== 'string' ||
-    typeof candidate.booker !== 'string' ||
-    typeof status !== 'string' ||
-    typeof eventClass !== 'string' ||
-    typeof candidate.date !== 'string' ||
-    typeof candidate.location !== 'string'
-  ) {
-    return null;
-  }
-
-  if (!PAYMENT_STATUSES.includes(status as PaymentStatus)) {
-    return null;
-  }
-
-  if (!EVENT_CLASSES.includes(eventClass as EventClass)) {
-    return null;
-  }
-
   const headcount =
     typeof headcountValue === 'number'
       ? headcountValue
@@ -352,17 +223,33 @@ export function normalizeEvent(value: unknown): Event | null {
   }
 
   const notes =
-    typeof candidate.notes === 'string' ? candidate.notes : String(candidate.notes ?? '');
+    typeof candidate.notes === 'string'
+      ? candidate.notes
+      : String(candidate.notes ?? '');
 
   return {
-    id: candidate.id,
+    contactNumber,
     title: candidate.title,
     booker: candidate.booker,
-    status: status as PaymentStatus,
-    eventClass: eventClass as EventClass,
+    status,
+    eventClass,
     date: candidate.date,
     location: candidate.location,
     headcount,
     notes,
+    orders: normalizeOrders(candidate.orders),
   };
+}
+
+const seededDefaults = (defaultEventSeed as StoredEvent[])
+  .map((event) => normalizeEvent(event))
+  .filter((event): event is Event => event !== null);
+
+export const DEFAULT_EVENTS: Event[] = seededDefaults;
+
+export function cloneDefaultEvents(): Event[] {
+  return DEFAULT_EVENTS.map((event) => ({
+    ...event,
+    orders: { ...event.orders },
+  }));
 }

@@ -8,6 +8,9 @@ import {
   EVENT_STORAGE_KEY,
   Event,
   EventClass,
+  MENU,
+  MenuCategory,
+  Orders,
   PaymentStatus,
   PAYMENT_STATUSES,
   cloneDefaultEvents,
@@ -21,9 +24,9 @@ const statusStyles: Record<PaymentStatus, string> = {
 };
 
 const classAccent: Record<EventClass, string> = {
-  'Signature Experience': 'from-purple-500/20 to-violet-500/10 border-purple-400/40',
-  'Premier Affair': 'from-blue-500/20 to-cyan-500/10 border-blue-400/40',
-  'Elevated Social': 'from-emerald-500/20 to-lime-500/10 border-emerald-400/30',
+  Grazing: 'from-emerald-500/20 to-lime-500/10 border-emerald-400/30',
+  'live station': 'from-indigo-500/20 to-fuchsia-500/10 border-indigo-400/40',
+  'pre order': 'from-amber-500/20 to-orange-500/10 border-amber-400/40',
 };
 
 const statusSummaryStyles: Record<PaymentStatus, string> = {
@@ -56,6 +59,33 @@ function isSoon(dateISO: string) {
   return daysUntil(dateISO) <= 7;
 }
 
+type OrderSummary = {
+  category: string;
+  items: { label: string; quantity: number }[];
+};
+
+function calculateOrderTotal(orders: Orders): number {
+  return Object.values(orders).reduce((total, value) => total + value, 0);
+}
+
+function buildOrderSummary(orders: Orders): OrderSummary[] {
+  return MENU.map((category) => summarizeCategory(category, orders)).filter(
+    (entry) => entry.items.length > 0,
+  );
+}
+
+function summarizeCategory(category: MenuCategory, orders: Orders): OrderSummary {
+  return {
+    category: category.title,
+    items: category.items
+      .map((item) => ({
+        label: item.label,
+        quantity: orders[item.id] ?? 0,
+      }))
+      .filter((item) => item.quantity > 0),
+  };
+}
+
 export default function Home() {
   const [events, setEvents] = useState<Event[]>(() => cloneDefaultEvents());
   const [selectedStatuses, setSelectedStatuses] = useState<PaymentStatus[]>(
@@ -64,6 +94,7 @@ export default function Home() {
   const [selectedClass, setSelectedClass] = useState<EventClass | 'All'>('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'soonest' | 'booker'>('soonest');
+  const [detailContact, setDetailContact] = useState<string | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notificationInfo, setNotificationInfo] = useState<string | null>(null);
 
@@ -139,6 +170,30 @@ export default function Home() {
     );
   }, [filteredEvents]);
 
+  const activeDetailEvent = useMemo(() => {
+    if (!detailContact) {
+      return null;
+    }
+    return events.find((event) => event.contactNumber === detailContact) ?? null;
+  }, [detailContact, events]);
+
+  const detailSummary = useMemo(() => {
+    if (!activeDetailEvent) {
+      return [] as OrderSummary[];
+    }
+    return buildOrderSummary(activeDetailEvent.orders);
+  }, [activeDetailEvent]);
+
+  const detailTotalOrders = useMemo(() => {
+    return activeDetailEvent ? calculateOrderTotal(activeDetailEvent.orders) : 0;
+  }, [activeDetailEvent]);
+
+  useEffect(() => {
+    if (detailContact && !activeDetailEvent) {
+      setDetailContact(null);
+    }
+  }, [detailContact, activeDetailEvent]);
+
   useEffect(() => {
     if (!notificationsEnabled) {
       setNotificationInfo(null);
@@ -212,6 +267,14 @@ export default function Home() {
     });
   };
 
+  const handleViewDetails = (contactNumber: string) => {
+    setDetailContact(contactNumber);
+  };
+
+  const handleClearDetails = () => {
+    setDetailContact(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="relative isolate overflow-hidden px-6 pb-24 pt-16 sm:px-12 lg:px-20">
@@ -226,8 +289,8 @@ export default function Home() {
                 Upcoming events, perfectly orchestrated.
               </h1>
               <p className="mt-4 max-w-2xl text-sm text-slate-300 sm:text-base">
-                Stay ahead of every signature experience, premier affair, and elevated
-                social. Track payment status, anticipate deadlines, and delight your
+                Stay ahead of every grazing, live station, and pre order service.
+                Track payment status, anticipate deadlines, and delight your
                 bookers with confidence.
               </p>
             </div>
@@ -405,14 +468,18 @@ export default function Home() {
                 filteredEvents.map((event) => {
                   const days = daysUntil(event.date);
                   const soon = isSoon(event.date);
+                  const totalOrders = calculateOrderTotal(event.orders);
+                  const isActive = detailContact === event.contactNumber;
                   return (
                     <article
-                      key={event.id}
-                      className={`rounded-3xl border bg-gradient-to-br px-6 py-6 shadow-xl shadow-slate-950/50 transition-all hover:-translate-y-[3px] hover:shadow-slate-900/40 ${classAccent[event.eventClass]}`}
+                      key={event.contactNumber}
+                      className={`rounded-3xl border bg-gradient-to-br px-6 py-6 shadow-xl shadow-slate-950/50 transition-all hover:-translate-y-[3px] hover:shadow-slate-900/40 ${classAccent[event.eventClass]} ${
+                        isActive ? 'ring-2 ring-indigo-400/60' : ''
+                      }`}
                     >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-3">
                             <span className="text-xs uppercase tracking-[0.3em] text-slate-300">
                               {event.eventClass}
                             </span>
@@ -421,12 +488,21 @@ export default function Home() {
                             >
                               {event.status}
                             </span>
+                            {isActive ? (
+                              <span className="rounded-full border border-indigo-400/40 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">
+                                Viewing details
+                              </span>
+                            ) : null}
                           </div>
                           <h2 className="mt-2 text-2xl font-semibold text-white">
                             {event.title}
                           </h2>
                           <p className="mt-2 text-sm text-slate-200">
                             Booker: <span className="font-semibold">{event.booker}</span>
+                          </p>
+                          <p className="mt-1 text-sm text-slate-300">
+                            Contact:{' '}
+                            <span className="font-mono text-slate-100">{event.contactNumber}</span>
                           </p>
                           <p className="mt-1 text-sm text-slate-300">{event.location}</p>
                         </div>
@@ -480,6 +556,23 @@ export default function Home() {
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
+                              d="M3 7.5h18M3 12h18M3 16.5h18"
+                            />
+                          </svg>
+                          {totalOrders} menu item{totalOrders === 1 ? '' : 's'}
+                        </span>
+                        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/40 px-3 py-1.5">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            className="h-4 w-4"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                               d="m21 15-5.197 2.887A2.25 2.25 0 0 1 12.536 17H11.25A2.25 2.25 0 0 1 9 14.75V9.25A2.25 2.25 0 0 1 11.25 7h1.286c.394 0 .778-.108 1.113-.311L21 3"
                             />
                             <path
@@ -488,11 +581,18 @@ export default function Home() {
                               d="M3 5h3a2 2 0 0 1 2 2v10.75A2.25 2.25 0 0 1 5.75 20H3"
                             />
                           </svg>
-                          {days <= 7
-                            ? 'Priority follow-up required'
-                            : 'On schedule'}
+                          {days <= 7 ? 'Priority follow-up required' : 'On schedule'}
                         </span>
-                        <p className="flex-1 text-sm text-slate-200">{event.notes}</p>
+                        <p className="flex-1 min-w-[16rem] text-sm text-slate-200">
+                          {event.notes ? event.notes : 'No special notes recorded.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleViewDetails(event.contactNumber)}
+                          className="inline-flex items-center gap-2 rounded-full border border-indigo-400/50 bg-indigo-500/15 px-4 py-1.5 text-xs font-semibold text-indigo-100 transition hover:border-indigo-300 hover:bg-indigo-500/25 hover:text-white"
+                        >
+                          Booking details
+                        </button>
                       </div>
                     </article>
                   );
@@ -501,6 +601,97 @@ export default function Home() {
             </div>
 
             <aside className="space-y-6 rounded-3xl border border-slate-700/60 bg-slate-900/60 p-6 shadow-xl shadow-black/50">
+              <div className="rounded-2xl border border-indigo-400/40 bg-indigo-500/10 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.3em] text-indigo-100">
+                    Booking details
+                  </h3>
+                  {activeDetailEvent ? (
+                    <button
+                      type="button"
+                      onClick={handleClearDetails}
+                      className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-200 transition hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                {activeDetailEvent ? (
+                  <>
+                    <p className="mt-3 text-lg font-semibold text-white">
+                      {activeDetailEvent.title}
+                    </p>
+                    <p className="mt-1 text-sm text-indigo-100/80">
+                      {activeDetailEvent.booker} &middot;{' '}
+                      <span className="font-mono">{activeDetailEvent.contactNumber}</span>
+                    </p>
+                    <dl className="mt-3 space-y-1 text-xs uppercase tracking-[0.2em] text-indigo-200/80">
+                      <div className="flex items-center justify-between">
+                        <dt>Status</dt>
+                        <dd className="rounded-full border border-indigo-300/40 bg-indigo-300/20 px-2 py-0.5 text-[11px] font-semibold text-indigo-50">
+                          {activeDetailEvent.status}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <dt>Headcount</dt>
+                        <dd className="text-sm font-semibold text-indigo-100">
+                          {activeDetailEvent.headcount}
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <dt>Event date</dt>
+                        <dd className="text-sm font-semibold text-indigo-100">
+                          {formatter.format(new Date(activeDetailEvent.date))}
+                        </dd>
+                      </div>
+                    </dl>
+                    <p className="mt-3 text-sm text-indigo-100/80">
+                      Venue: {activeDetailEvent.location}
+                    </p>
+                    <p className="mt-2 text-sm text-indigo-100/70">
+                      {activeDetailEvent.notes || 'No special notes recorded.'}
+                    </p>
+                    <div className="mt-4 rounded-xl border border-indigo-300/30 bg-indigo-400/10 p-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-200">
+                          Menu plan
+                        </h4>
+                        <span className="text-xs font-semibold text-indigo-100">
+                          {detailTotalOrders} item{detailTotalOrders === 1 ? '' : 's'} total
+                        </span>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        {detailSummary.length > 0 ? (
+                          detailSummary.map((category) => (
+                            <div key={category.category} className="space-y-1">
+                              <p className="text-sm font-semibold text-white">
+                                {category.category}
+                              </p>
+                              <ul className="space-y-1 text-sm text-indigo-100/90">
+                                {category.items.map((item) => (
+                                  <li key={item.label} className="flex items-center justify-between">
+                                    <span>{item.label}</span>
+                                    <span className="font-mono text-indigo-200">{item.quantity}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-indigo-100/70">
+                            No menu selections recorded yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-indigo-100/70">
+                    Choose &ldquo;Booking details&rdquo; on an event to review contact, notes, and menu allocations.
+                  </p>
+                )}
+              </div>
+
               <div>
                 <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
                   Radar
@@ -563,3 +754,5 @@ export default function Home() {
     </div>
   );
 }
+
+
